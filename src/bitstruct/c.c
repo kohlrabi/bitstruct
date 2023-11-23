@@ -385,6 +385,59 @@ static PyObject *unpack_signed_integer(struct bitstream_reader_t *self_p,
     return (PyLong_FromLongLong((long long)value));
 }
 
+static void pack_signed_ones_integer(struct bitstream_writer_t *self_p,
+                                PyObject *value_p,
+                                struct field_info_t *field_info_p)
+{
+    int64_t value;
+    int64_t lower;
+    int64_t upper;
+
+    value = PyLong_AsLongLong(value_p);
+
+    if ((value == -1) && PyErr_Occurred()) {
+        return;
+    }
+
+    if (field_info_p->number_of_bits < 64) {
+        lower = field_info_p->limits.s.lower;
+        upper = field_info_p->limits.s.upper;
+
+        if ((value < lower) || (value > upper)) {
+            PyErr_Format(PyExc_OverflowError,
+                         "Signed ones' complement integer value %lld out of range.",
+                         (long long)value);
+        }
+
+        if(value < 0) {
+            value--;
+        }
+
+        value &= ((1ull << field_info_p->number_of_bits) - 1);
+    }
+
+    bitstream_writer_write_u64_bits(self_p,
+                                    (uint64_t)value,
+                                    field_info_p->number_of_bits);
+}
+
+static PyObject *unpack_signed_ones_integer(struct bitstream_reader_t *self_p,
+                                       struct field_info_t *field_info_p)
+{
+    uint64_t value;
+    uint64_t sign_bit;
+
+    value = bitstream_reader_read_u64_bits(self_p, field_info_p->number_of_bits);
+    sign_bit = (1ull << (field_info_p->number_of_bits - 1));
+
+    if (value & sign_bit) {
+        value |= ~(((sign_bit) << 1) - 1);
+        value++;
+    }
+
+    return (PyLong_FromLongLong((long long)value));
+}
+
 static void pack_unsigned_integer(struct bitstream_writer_t *self_p,
                                   PyObject *value_p,
                                   struct field_info_t *field_info_p)
@@ -648,6 +701,27 @@ static int field_info_init_signed(struct field_info_t *self_p,
     return (0);
 }
 
+static int field_info_init_signed_ones(struct field_info_t *self_p,
+                                  int number_of_bits)
+{
+    uint64_t limit;
+
+    self_p->pack = pack_signed_ones_integer;
+    self_p->unpack = unpack_signed_ones_integer;
+
+    if (number_of_bits > 64) {
+        PyErr_SetString(PyExc_NotImplementedError,
+                        "Signed ones' complement integer over 64 bits.");
+        return (-1);
+    }
+
+    limit = (1ull << (number_of_bits - 1));
+    self_p->limits.s.lower = -limit + 1;
+    self_p->limits.s.upper = (limit - 1);
+
+    return (0);
+}
+
 static int field_info_init_unsigned(struct field_info_t *self_p,
                                     int number_of_bits)
 {
@@ -777,6 +851,10 @@ static int field_info_init(struct field_info_t *self_p,
 
     case 's':
         res = field_info_init_signed(self_p, number_of_bits);
+        break;
+
+    case 'o':
+        res = field_info_init_signed_ones(self_p, number_of_bits);
         break;
 
     case 'u':

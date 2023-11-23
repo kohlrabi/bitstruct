@@ -51,6 +51,40 @@ class _SignedInteger(_Info):
 
         return value
 
+class _SignedOnesInteger(_SignedInteger):
+
+    def __init__(self, size, name):
+        super().__init__(size, name)
+        self.minimum += 1
+
+    def pack(self, arg):
+        value = int(arg)
+
+        if value < self.minimum or value > self.maximum:
+            raise Error(
+                '"o{}" requires {} <= integer <= {} (got {})'.format(
+                    self.size,
+                    self.minimum,
+                    self.maximum,
+                    arg))
+
+        bits = super().pack(arg)
+
+        if value < 0:
+            if bits[-1] == '1':
+                bits = bits[:-1] + '0'
+            else:
+                bits = bits[:-2] + '01'
+
+        return bits
+
+    def unpack(self, bits):
+        value = super().unpack(bits)
+
+        if bits[0] == '1':
+            value += 1
+
+        return value
 
 class _UnsignedInteger(_Info):
 
@@ -198,6 +232,9 @@ def _parse_format(fmt, names, text_encoding, text_errors):
 
         if type_ == 's':
             info = _SignedInteger(size, name)
+            i += 1
+        elif type_ == 'o':
+            info = _SignedOnesInteger(size, name)
             i += 1
         elif type_ == 'u':
             info = _UnsignedInteger(size, name)
@@ -492,11 +529,12 @@ def pack(fmt, *args):
     first. If byte order is omitted, most significant byte first is
     used.
 
-    There are eight types; ``u``, ``s``, ``f``, ``b``, ``t``, ``r``,
+    There are eight types; ``u``, ``s``, ``o``, ``f``, ``b``, ``t``, ``r``,
     ``p`` and ``P``.
 
     - ``u`` -- unsigned integer
     - ``s`` -- signed integer
+    - ``o`` -- signed ones' complement integer
     - ``f`` -- floating point number of 16, 32, or 64 bits
     - ``b`` -- boolean
     - ``t`` -- text (ascii or utf-8)
